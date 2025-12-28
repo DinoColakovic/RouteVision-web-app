@@ -297,7 +297,7 @@ export default function FakturePage() {
                       <DollarSign className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-sm text-muted-foreground">Iznos</p>
-                        <p className="text-lg font-bold">{faktura.iznos.toFixed(2)} KM</p>
+                        <p className="text-lg font-bold">{Number(faktura.iznos || 0).toFixed(2)} KM</p>
                       </div>
                     </div>
                   </div>
