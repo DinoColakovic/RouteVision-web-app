@@ -91,6 +91,12 @@ export default function EvidencijaPage() {
   }, [])
 
   useEffect(() => {
+    if (userRole === "admin") {
+      fetchKamioni()
+    }
+  }, [userRole])
+
+  useEffect(() => {
     // Automatski izračunaj ukupno
     const litara = Number.parseFloat(gorivoFormData.litara) || 0
     const cijena = Number.parseFloat(gorivoFormData.cijena_po_litri) || 0

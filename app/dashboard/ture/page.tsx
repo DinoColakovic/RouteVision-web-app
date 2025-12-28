@@ -88,10 +88,15 @@ export default function TurePage() {
   useEffect(() => {
     checkAuth()
     fetchTure()
-    fetchVozaci()
-    fetchKamioni()
-    fetchNarudzbe()
   }, [])
+
+  useEffect(() => {
+    if (userRole === "admin") {
+      fetchVozaci()
+      fetchKamioni()
+      fetchNarudzbe()
+    }
+  }, [userRole])
 
   const checkAuth = async () => {
     try {
