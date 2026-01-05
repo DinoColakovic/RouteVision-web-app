@@ -1,3 +1,4 @@
+// app/api/ture/route.ts (or wherever your /api/ture route is)
 import { type NextRequest, NextResponse } from "next/server"
 import pool from "@/lib/db"
 import { getSessionUser } from "@/lib/auth"
@@ -7,24 +8,33 @@ interface TuraRow extends RowDataPacket {
   id: number
   broj_ture: string
   vozac_id: number
+  vozac_ime: string | null
+  vozac_prezime: string | null
   kamion_id: number
+  kamion_tablica: string | null
+  kamion_model: string | null
   narudzba_id: number
+  narudzba_broj: string | null
+  klijent_naziv: string | null
   datum_pocetka: Date
   datum_kraja: Date | null
   status: string
   napomena: string | null
 }
 
-// GET - Dobavi jednu turu po ID-u
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+// GET - Dobavi sve ture (unchanged)
+export async function GET(request: NextRequest) {
   try {
     const user = await getSessionUser(request)
     if (!user) {
       return NextResponse.json({ success: false, message: "Neautorizovano" }, { status: 401 })
     }
 
-    const [ture] = await pool.execute<RowDataPacket[]>(
-      `SELECT 
+    const searchParams = request.nextUrl.searchParams
+    const status = searchParams.get("status")
+
+    let sql = `
+      SELECT 
         t.id,
         t.broj_ture,
         t.vozac_id,
@@ -45,101 +55,100 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       LEFT JOIN kamion k ON t.kamion_id = k.id
       LEFT JOIN narudzba n ON t.narudzba_id = n.id
       LEFT JOIN klijent kl ON n.klijent_id = kl.id
-      WHERE t.id = ?`,
-      [params.id],
-    )
+    `
 
-    if (ture.length === 0) {
-      return NextResponse.json({ success: false, message: "Tura nije pronađena" }, { status: 404 })
+    const params: Array<string | number> = []
+    const conditions: string[] = ["t.aktivan = TRUE"]
+
+    if (user.role === "vozac") {
+      conditions.push("t.vozac_id = ?")
+      params.push(user.id)
     }
 
-    if (user.role === "vozac" && ture[0].vozac_id !== user.id) {
-      return NextResponse.json({ success: false, message: "Nemate dozvolu" }, { status: 403 })
+    if (status) {
+      conditions.push("t.status = ?")
+      params.push(status)
     }
 
-    return NextResponse.json({ success: true, data: ture[0] })
+    if (conditions.length > 0) {
+      sql += ` WHERE ${conditions.join(" AND ")}`
+    }
+
+    sql += " ORDER BY t.datum_pocetka DESC"
+
+    const [ture] = await pool.execute<TuraRow[]>(sql, params)
+    return NextResponse.json({ success: true, data: ture })
   } catch (error) {
-    console.error("Greška pri dohvaćanju ture:", error)
+    console.error("Greška pri dohvaćanju tura:", error)
     return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
   }
 }
 
-// PUT - Ažuriraj turu
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+// POST - Kreiraj novu turu
+export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser(request)
     if (!user) {
       return NextResponse.json({ success: false, message: "Neautorizovano" }, { status: 401 })
     }
 
-    const data = await request.json()
-
-    const [existingTure] = await pool.execute<TuraRow[]>("SELECT * FROM tura WHERE id = ?", [params.id])
-    if (existingTure.length === 0) {
-      return NextResponse.json({ success: false, message: "Tura nije pronađena" }, { status: 404 })
-    }
-
-    const existingTura = existingTure[0]
-
-    if (user.role === "vozac") {
-      if (existingTura.vozac_id !== user.id) {
-        return NextResponse.json({ success: false, message: "Nemate dozvolu" }, { status: 403 })
-      }
-
-      const { status, napomena } = data
-      await pool.execute<ResultSetHeader>("UPDATE tura SET status = ?, napomena = ? WHERE id = ?", [
-        status || existingTura.status,
-        napomena !== undefined ? napomena : existingTura.napomena,
-        params.id,
-      ])
-
-      return NextResponse.json({ success: true, message: "Tura uspješno ažurirana" })
-    }
-
-    const { broj_ture, vozac_id, kamion_id, narudzba_id, datum_pocetka, datum_kraja, status, napomena } = data
-
-    await pool.execute<ResultSetHeader>(
-      `UPDATE tura 
-       SET broj_ture = ?, vozac_id = ?, kamion_id = ?, narudzba_id = ?, datum_pocetka = ?, 
-           datum_kraja = ?, status = ?, napomena = ?
-       WHERE id = ?`,
-      [
-        broj_ture || existingTura.broj_ture,
-        vozac_id || existingTura.vozac_id,
-        kamion_id || existingTura.kamion_id,
-        narudzba_id || existingTura.narudzba_id,
-        datum_pocetka || existingTura.datum_pocetka,
-        datum_kraja !== undefined ? datum_kraja : existingTura.datum_kraja,
-        status || existingTura.status,
-        napomena !== undefined ? napomena : existingTura.napomena,
-        params.id,
-      ],
-    )
-
-    return NextResponse.json({ success: true, message: "Tura uspješno ažurirana" })
-  } catch (error) {
-    console.error("Greška pri ažuriranju ture:", error)
-    return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
-  }
-}
-
-// DELETE - Obriši turu
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    const user = await getSessionUser(request)
-    if (!user || user.role !== "admin") {
+    // Only admins and vozaci can create tours
+    if (user.role !== "admin" && user.role !== "vozac") {
       return NextResponse.json({ success: false, message: "Nemate dozvolu" }, { status: 403 })
     }
 
-    const [result] = await pool.execute<ResultSetHeader>("UPDATE tura SET aktivan = FALSE WHERE id = ?", [params.id])
+    const data = await request.json()
+    const {
+      broj_ture,
+      // vozac_id may be provided by admin, but if requestor is vozac we will override it
+      vozac_id: vozac_id_from_body,
+      kamion_id,
+      narudzba_id,
+      datum_pocetka,
+      datum_kraja,
+      status,
+      napomena,
+    } = data
 
-    if (result.affectedRows === 0) {
-      return NextResponse.json({ success: false, message: "Tura nije pronađena" }, { status: 404 })
+    // If user is vozac, force vozac_id to the logged in user's id
+    const vozac_id = user.role === "vozac" ? user.id : vozac_id_from_body
+
+    // Required fields: broj_ture, vozac_id (will exist for admin or vozac), kamion_id, narudzba_id, datum_pocetka
+    if (!broj_ture || !vozac_id || !kamion_id || !narudzba_id || !datum_pocetka) {
+      return NextResponse.json({ success: false, message: "Sva obavezna polja moraju biti popunjena" }, { status: 400 })
     }
 
-    return NextResponse.json({ success: true, message: "Tura uspješno obrisana" })
+    // Ensure broj_ture unique
+    const [existing] = await pool.execute<RowDataPacket[]>("SELECT id FROM tura WHERE broj_ture = ?", [broj_ture])
+    if (existing.length > 0) {
+      return NextResponse.json({ success: false, message: "Broj ture već postoji" }, { status: 400 })
+    }
+
+    const [result] = await pool.execute<ResultSetHeader>(
+        `INSERT INTO tura (broj_ture, vozac_id, kamion_id, narudzba_id, datum_pocetka, datum_kraja, status, napomena)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          broj_ture,
+          vozac_id,
+          kamion_id,
+          narudzba_id,
+          datum_pocetka,
+          datum_kraja || null,
+          status || "U toku",
+          napomena || null,
+        ],
+    )
+
+    return NextResponse.json(
+        {
+          success: true,
+          message: "Tura uspješno kreirana",
+          id: result.insertId,
+        },
+        { status: 201 },
+    )
   } catch (error) {
-    console.error("Greška pri brisanju ture:", error)
+    console.error("Greška pri kreiranju ture:", error)
     return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
   }
 }

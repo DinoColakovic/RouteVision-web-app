@@ -1,3 +1,4 @@
+// app/api/narudzbe/route.ts
 import { type NextRequest, NextResponse } from "next/server"
 import pool from "@/lib/db"
 import { cookies } from "next/headers"
@@ -21,7 +22,7 @@ interface NarudbaRow extends RowDataPacket {
   datum_kreiranja: Date
 }
 
-// GET /api/narudzbe
+// GET /api/narudzbe - admins see all, vozaci see new/relevant orders
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies()
@@ -33,95 +34,35 @@ export async function GET(request: NextRequest) {
 
     const session = JSON.parse(sessionCookie.value)
 
-    if (session.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Nemate dozvolu za ovu akciju" }, { status: 403 })
+    // admin: return all active narudzbe
+    if (session.role === "admin") {
+      const [narudzbe] = await pool.execute<NarudbaRow[]>(
+          `SELECT n.*, k.naziv_firme as klijent_naziv 
+         FROM narudzba n 
+         LEFT JOIN klijent k ON n.klijent_id = k.id 
+         WHERE n.aktivan = TRUE
+         ORDER BY n.datum_kreiranja DESC`,
+      )
+
+      return NextResponse.json({ success: true, data: narudzbe })
     }
 
-    const [narudzbe] = await pool.execute<NarudbaRow[]>(
-      `SELECT n.*, k.naziv_firme as klijent_naziv 
-       FROM narudzba n 
-       LEFT JOIN klijent k ON n.klijent_id = k.id 
-       ORDER BY n.datum_kreiranja DESC`,
-    )
+    // vozac: return only "new" orders — match common "Novo"/"Novoprijavljena" values
+    if (session.role === "vozac") {
+      const [narudzbe] = await pool.execute<NarudbaRow[]>(
+          `SELECT n.*, k.naziv_firme as klijent_naziv
+         FROM narudzba n
+         LEFT JOIN klijent k ON n.klijent_id = k.id
+         WHERE n.aktivan = TRUE AND n.status LIKE '%Nov%'
+         ORDER BY n.datum_kreiranja DESC`,
+      )
 
-    return NextResponse.json({ success: true, data: narudzbe })
+      return NextResponse.json({ success: true, data: narudzbe })
+    }
+
+    return NextResponse.json({ success: false, message: "Nemate dozvolu za ovu akciju" }, { status: 403 })
   } catch (error) {
-    console.error("[v0] Greška pri dohvatanju narudžbi:", error)
-    return NextResponse.json({ success: false, message: "Greška na serveru" }, { status: 500 })
-  }
-}
-
-// POST /api/narudzbe
-export async function POST(request: NextRequest) {
-  try {
-    const cookieStore = await cookies()
-    const sessionCookie = cookieStore.get("session")
-
-    if (!sessionCookie) {
-      return NextResponse.json({ success: false, message: "Neautorizovan pristup" }, { status: 401 })
-    }
-
-    const session = JSON.parse(sessionCookie.value)
-
-    if (session.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Nemate dozvolu za ovu akciju" }, { status: 403 })
-    }
-
-    const body = await request.json()
-    const {
-      broj_narudzbe,
-      klijent_id,
-      datum_narudzbe,
-      datum_isporuke,
-      vrsta_robe,
-      kolicina,
-      jedinica_mjere,
-      lokacija_preuzimanja,
-      lokacija_dostave,
-      napomena,
-      status,
-    } = body
-
-    // Validacija
-    if (!broj_narudzbe || !klijent_id) {
-      return NextResponse.json({ success: false, message: "Broj narudžbe i klijent su obavezni" }, { status: 400 })
-    }
-
-    // Provjera da li broj narudžbe već postoji
-    const [existing] = await pool.execute<NarudbaRow[]>("SELECT id FROM narudzba WHERE broj_narudzbe = ?", [
-      broj_narudzbe,
-    ])
-
-    if (existing.length > 0) {
-      return NextResponse.json({ success: false, message: "Broj narudžbe već postoji" }, { status: 400 })
-    }
-
-    const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO narudzba (broj_narudzbe, klijent_id, datum_narudzbe, datum_isporuke, vrsta_robe, 
-       kolicina, jedinica_mjere, lokacija_preuzimanja, lokacija_dostave, napomena, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        broj_narudzbe,
-        klijent_id,
-        datum_narudzbe || null,
-        datum_isporuke || null,
-        vrsta_robe || null,
-        kolicina || null,
-        jedinica_mjere || null,
-        lokacija_preuzimanja || null,
-        lokacija_dostave || null,
-        napomena || null,
-        status || "Novoprijavljena",
-      ],
-    )
-
-    return NextResponse.json({
-      success: true,
-      message: "Narudžba uspješno kreirana",
-      id: result.insertId,
-    })
-  } catch (error) {
-    console.error("[v0] Greška pri kreiranju narudžbe:", error)
+    console.error("[narudzbe] Greška pri dohvatanju narudžbi:", error)
     return NextResponse.json({ success: false, message: "Greška na serveru" }, { status: 500 })
   }
 }
