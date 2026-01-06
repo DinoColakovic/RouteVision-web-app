@@ -66,6 +66,7 @@ export default function EvidencijaPage() {
   const [deleteInfo, setDeleteInfo] = useState<{ type: string; id: number } | null>(null)
   const [activeTab, setActiveTab] = useState("servisi")
   const [userRole, setUserRole] = useState<"admin" | "vozac" | null>(null)
+  const [assignedKamionId, setAssignedKamionId] = useState<string | null>(null)
 
   const [servisFormData, setServisFormData] = useState({
     kamion_id: "",
@@ -93,6 +94,9 @@ export default function EvidencijaPage() {
   useEffect(() => {
     if (userRole === "admin") {
       fetchKamioni()
+    }
+    if (userRole === "vozac") {
+      fetchAssignedKamion()
     }
   }, [userRole])
 
@@ -164,6 +168,26 @@ export default function EvidencijaPage() {
     }
   }
 
+  const fetchAssignedKamion = async () => {
+    try {
+      const response = await fetch("/api/moj-kamion")
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          const kamionId = data.data.id.toString()
+          setKamioni([data.data])
+          setAssignedKamionId(kamionId)
+          setServisFormData((prev) => ({
+            ...prev,
+            kamion_id: kamionId,
+          }))
+        }
+      }
+    } catch (error) {
+      console.error("Greška pri učitavanju kamiona:", error)
+    }
+  }
+
   const handleOpenServisDialog = (servis?: Servis) => {
     if (servis) {
       setCurrentServis(servis)
@@ -200,7 +224,7 @@ export default function EvidencijaPage() {
     } else {
       setCurrentGorivo(null)
       setGorivoFormData({
-        kamion_id: "",
+        kamion_id: userRole === "vozac" ? assignedKamionId || "" : "",
         datum: "",
         litara: "",
         cijena_po_litri: "",
@@ -216,9 +240,10 @@ export default function EvidencijaPage() {
     try {
       const url = currentServis ? `/api/servisi/${currentServis.id}` : "/api/servisi"
       const method = currentServis ? "PUT" : "POST"
+      const kamionId = userRole === "vozac" ? assignedKamionId : servisFormData.kamion_id
 
       const payload = {
-        kamion_id: servisFormData.kamion_id,
+        kamion_id: kamionId,
         datum_servisa: servisFormData.datum_servisa,
         vrsta_servisa: servisFormData.vrsta_servisa,
         opis_servisa: servisFormData.opis_servisa,
@@ -363,7 +388,7 @@ export default function EvidencijaPage() {
 
           <TabsContent value="servisi" className="mt-6">
             <div className="mb-4">
-              {userRole === "admin" && (
+              {(userRole === "admin" || userRole === "vozac") && (
                 <Button onClick={() => handleOpenServisDialog()}>
                   <Plus className="mr-2 h-4 w-4" />
                   Novi Servis
@@ -510,7 +535,7 @@ export default function EvidencijaPage() {
                   <Select
                     value={servisFormData.kamion_id}
                     onValueChange={(value) => setServisFormData({ ...servisFormData, kamion_id: value })}
-                    disabled={!!currentServis}
+                    disabled={!!currentServis || userRole === "vozac"}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Odaberite kamion" />
