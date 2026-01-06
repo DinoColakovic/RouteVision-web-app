@@ -14,6 +14,10 @@ interface GorivoRow extends RowDataPacket {
   ukupno: number
 }
 
+interface VozacKamionRow extends RowDataPacket {
+  kamion_id: number | null
+}
+
 // GET - Dobavi sve stavke goriva
 export async function GET(request: NextRequest) {
   try {
@@ -68,18 +72,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Neautorizovano" }, { status: 401 })
     }
 
-    if (user.role !== "admin") {
+    if (user.role !== "admin" && user.role !== "vozac") {
       return NextResponse.json({ success: false, message: "Nemate dozvolu" }, { status: 403 })
     }
 
     const data = await request.json()
     const { kamion_id, datum, litara, cijena_po_litri, ukupno } = data
-    const kamionId = Number(kamion_id)
+    let kamionId = Number(kamion_id)
     const parsedLitara = Number.parseFloat(litara)
     const parsedCijena = Number.parseFloat(cijena_po_litri)
     const parsedUkupno = Number.parseFloat(ukupno)
 
-    if (!kamionId || !datum || Number.isNaN(parsedLitara) || Number.isNaN(parsedCijena) || Number.isNaN(parsedUkupno)) {
+    if (!datum || Number.isNaN(parsedLitara) || Number.isNaN(parsedCijena) || Number.isNaN(parsedUkupno)) {
+      return NextResponse.json(
+          {
+            success: false,
+            message: "Sva obavezna polja moraju biti popunjena",
+          },
+          { status: 400 },
+      )
+    }
+
+    if (user.role === "vozac") {
+      const [vozacKamion] = await pool.execute<VozacKamionRow[]>(
+          "SELECT kamion_id FROM vozac WHERE id = ?",
+          [user.id],
+      )
+      const assignedKamionId = vozacKamion?.[0]?.kamion_id
+      if (!assignedKamionId) {
+        return NextResponse.json({ success: false, message: "Nema dodijeljenog kamiona" }, { status: 400 })
+      }
+      kamionId = assignedKamionId
+    }
+
+    if (user.role === "admin" && !kamionId) {
       return NextResponse.json(
         {
           success: false,

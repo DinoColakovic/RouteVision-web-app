@@ -177,7 +177,7 @@ export default function EvidencijaPage() {
           const kamionId = data.data.id.toString()
           setKamioni([data.data])
           setAssignedKamionId(kamionId)
-          setServisFormData((prev) => ({
+          setGorivoFormData((prev) => ({
             ...prev,
             kamion_id: kamionId,
           }))
@@ -275,11 +275,17 @@ export default function EvidencijaPage() {
     try {
       const url = currentGorivo ? `/api/gorivo/${currentGorivo.id}` : "/api/gorivo"
       const method = currentGorivo ? "PUT" : "POST"
+      const kamionId = userRole === "vozac" ? assignedKamionId : gorivoFormData.kamion_id
+
+      const payload = {
+        ...gorivoFormData,
+        kamion_id: kamionId,
+      }
 
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(gorivoFormData),
+        body: JSON.stringify(payload),
       })
 
       if (response.ok) {
@@ -451,7 +457,7 @@ export default function EvidencijaPage() {
 
           <TabsContent value="gorivo" className="mt-6">
             <div className="mb-4">
-              {userRole === "admin" && (
+              {(userRole === "admin" || userRole === "vozac") && (
                 <Button onClick={() => handleOpenGorivoDialog()}>
                   <Plus className="mr-2 h-4 w-4" />
                   Novo Punjenje
@@ -619,7 +625,7 @@ export default function EvidencijaPage() {
                   <Select
                     value={gorivoFormData.kamion_id}
                     onValueChange={(value) => setGorivoFormData({ ...gorivoFormData, kamion_id: value })}
-                    disabled={!!currentGorivo}
+                    disabled={!!currentGorivo || userRole === "vozac"}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Odaberite kamion" />
