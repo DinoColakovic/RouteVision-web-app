@@ -332,7 +332,9 @@ export default function OsobljePage() {
                                 ? new Date(vozac.datum_zaposlenja).toLocaleDateString("bs-BA")
                                 : "-"}
                             </TableCell>
-                            <TableCell>{vozac.plata?.toFixed(2) || "-"}</TableCell>
+                            <TableCell>
+                              {vozac.plata == null ? "-" : Number(vozac.plata).toFixed(2)}
+                            </TableCell>
                             <TableCell>{vozac.broj_dovrsenih_tura}</TableCell>
                             <TableCell>
                               <Badge variant={vozac.aktivan ? "default" : "secondary"}>

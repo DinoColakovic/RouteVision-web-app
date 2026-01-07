@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import pool from "@/lib/db"
 import { getSessionUser } from "@/lib/auth"
+import { normalizeDateInput } from "@/lib/date"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 
 interface GorivoRow extends RowDataPacket {
@@ -16,6 +17,56 @@ interface GorivoRow extends RowDataPacket {
 
 interface VozacKamionRow extends RowDataPacket {
   kamion_id: number | null
+}
+
+interface KamionIdRow extends RowDataPacket {
+  id: number
+}
+
+async function getVozacKamionIds(vozacId: number): Promise<number[]> {
+  const kamionIds = new Set<number>()
+
+  const [primaryRows] = await pool.execute<VozacKamionRow[]>(
+    "SELECT kamion_id FROM vozac WHERE id = ? AND kamion_id IS NOT NULL",
+    [vozacId],
+  )
+  for (const row of primaryRows) {
+    if (row.kamion_id) kamionIds.add(row.kamion_id)
+  }
+
+  const [assignedRows] = await pool.execute<KamionIdRow[]>(
+    "SELECT id FROM kamion WHERE aktivan = TRUE AND zaduzeni_vozac_id = ?",
+    [vozacId],
+  )
+  for (const row of assignedRows) {
+    if (row.id) kamionIds.add(row.id)
+  }
+
+  try {
+    const [mappingRows] = await pool.execute<KamionIdRow[]>(
+      "SELECT kamion_id as id FROM vozac_kamion WHERE vozac_id = ?",
+      [vozacId],
+    )
+    for (const row of mappingRows) {
+      if (row.id) kamionIds.add(row.id)
+    }
+  } catch {
+    // mapping table may not exist
+  }
+
+  try {
+    const [mappingRows] = await pool.execute<KamionIdRow[]>(
+      "SELECT kamion_id as id FROM kamion_vozac WHERE vozac_id = ?",
+      [vozacId],
+    )
+    for (const row of mappingRows) {
+      if (row.id) kamionIds.add(row.id)
+    }
+  } catch {
+    // mapping table may not exist
+  }
+
+  return Array.from(kamionIds)
 }
 
 // GET - Dobavi sve stavke goriva
@@ -82,27 +133,32 @@ export async function POST(request: NextRequest) {
     const parsedLitara = Number.parseFloat(litara)
     const parsedCijena = Number.parseFloat(cijena_po_litri)
     const parsedUkupno = Number.parseFloat(ukupno)
+    const normalizedDatum = normalizeDateInput(datum)
 
-    if (!datum || Number.isNaN(parsedLitara) || Number.isNaN(parsedCijena) || Number.isNaN(parsedUkupno)) {
+    if (!normalizedDatum || Number.isNaN(parsedLitara) || Number.isNaN(parsedCijena) || Number.isNaN(parsedUkupno)) {
       return NextResponse.json(
           {
             success: false,
-            message: "Sva obavezna polja moraju biti popunjena",
+            message: "Sva obavezna polja moraju biti popunjena i validna",
           },
           { status: 400 },
       )
     }
 
     if (user.role === "vozac") {
-      const [vozacKamion] = await pool.execute<VozacKamionRow[]>(
-          "SELECT kamion_id FROM vozac WHERE id = ?",
-          [user.id],
-      )
-      const assignedKamionId = vozacKamion?.[0]?.kamion_id
-      if (!assignedKamionId) {
+      const vozacKamioni = await getVozacKamionIds(user.id)
+      if (vozacKamioni.length === 0) {
         return NextResponse.json({ success: false, message: "Nema dodijeljenog kamiona" }, { status: 400 })
       }
-      kamionId = assignedKamionId
+
+      const requestedKamionId = Number(kamion_id)
+      const effectiveKamionId = requestedKamionId || vozacKamioni[0]
+
+      if (!vozacKamioni.includes(effectiveKamionId)) {
+        return NextResponse.json({ success: false, message: "Kamion nije dodijeljen vozaču" }, { status: 403 })
+      }
+
+      kamionId = effectiveKamionId
     }
 
     if (user.role === "admin" && !kamionId) {
@@ -118,7 +174,7 @@ export async function POST(request: NextRequest) {
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO gorivo (kamion_id, datum, litara, cijena_po_litri, ukupno)
        VALUES (?, ?, ?, ?, ?)`,
-      [kamionId, datum, parsedLitara, parsedCijena, parsedUkupno],
+      [kamionId, normalizedDatum, parsedLitara, parsedCijena, parsedUkupno],
     )
 
     return NextResponse.json(
@@ -130,6 +186,15 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     )
   } catch (error) {
+    if (error && (error as { code?: string }).code === "ER_NO_SUCH_TABLE") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Tabela gorivo nije pronađena. Pokrenite migracije baze.",
+        },
+        { status: 500 },
+      )
+    }
     console.error("Greška pri kreiranju goriva:", error)
     return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
   }
