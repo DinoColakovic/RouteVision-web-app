@@ -88,15 +88,11 @@ export default function EvidencijaPage() {
     checkAuth()
     fetchServisi()
     fetchGorivo()
-    fetchKamioni()
   }, [])
 
   useEffect(() => {
-    if (userRole === "admin") {
-      fetchKamioni()
-    }
-    if (userRole === "vozac") {
-      fetchAssignedKamion()
+    if (userRole) {
+      fetchKamioni(userRole)
     }
   }, [userRole])
 
@@ -154,33 +150,21 @@ export default function EvidencijaPage() {
     }
   }
 
-  const fetchKamioni = async () => {
+  const fetchKamioni = async (role?: "admin" | "vozac") => {
     try {
       const response = await fetch("/api/vozni-park")
       if (response.ok) {
         const data = await response.json()
         if (data.success) {
           setKamioni(data.data)
-        }
-      }
-    } catch (error) {
-      console.error("Greška pri učitavanju kamiona:", error)
-    }
-  }
-
-  const fetchAssignedKamion = async () => {
-    try {
-      const response = await fetch("/api/moj-kamion")
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          const kamionId = data.data.id.toString()
-          setKamioni([data.data])
-          setAssignedKamionId(kamionId)
-          setGorivoFormData((prev) => ({
-            ...prev,
-            kamion_id: kamionId,
-          }))
+          if (role === "vozac") {
+            const defaultId = data.data?.[0]?.id?.toString() || ""
+            setAssignedKamionId(defaultId || null)
+            setGorivoFormData((prev) => ({
+              ...prev,
+              kamion_id: prev.kamion_id || defaultId,
+            }))
+          }
         }
       }
     } catch (error) {
@@ -223,8 +207,10 @@ export default function EvidencijaPage() {
       })
     } else {
       setCurrentGorivo(null)
+      const defaultKamionId =
+        gorivoFormData.kamion_id || assignedKamionId || kamioni[0]?.id?.toString() || ""
       setGorivoFormData({
-        kamion_id: userRole === "vozac" ? assignedKamionId || "" : "",
+        kamion_id: userRole === "vozac" ? defaultKamionId : "",
         datum: "",
         litara: "",
         cijena_po_litri: "",
@@ -275,7 +261,12 @@ export default function EvidencijaPage() {
     try {
       const url = currentGorivo ? `/api/gorivo/${currentGorivo.id}` : "/api/gorivo"
       const method = currentGorivo ? "PUT" : "POST"
-      const kamionId = userRole === "vozac" ? assignedKamionId : gorivoFormData.kamion_id
+      const kamionId = userRole === "vozac" ? gorivoFormData.kamion_id : gorivoFormData.kamion_id
+
+      if (!kamionId) {
+        alert("Odaberite kamion prije spremanja.")
+        return
+      }
 
       const payload = {
         ...gorivoFormData,
@@ -506,15 +497,15 @@ export default function EvidencijaPage() {
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <p className="text-sm text-muted-foreground">Litara</p>
-                          <p className="text-lg font-medium">{g.litara.toFixed(2)} L</p>
+                          <p className="text-lg font-medium">{Number(g.litara ?? 0).toFixed(2)} L</p>
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground">Cijena po litri</p>
-                          <p className="text-lg font-medium">{g.cijena_po_litri.toFixed(2)} KM</p>
+                          <p className="text-lg font-medium">{Number(g.cijena_po_litri ?? 0).toFixed(2)} KM</p>
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground">Ukupno</p>
-                          <p className="text-lg font-bold">{g.ukupno.toFixed(2)} KM</p>
+                          <p className="text-lg font-bold">{Number(g.ukupno ?? 0).toFixed(2)} KM</p>
                         </div>
                       </div>
                     </CardContent>
@@ -624,8 +615,13 @@ export default function EvidencijaPage() {
                   <Label htmlFor="kamion_id">Kamion *</Label>
                   <Select
                     value={gorivoFormData.kamion_id}
-                    onValueChange={(value) => setGorivoFormData({ ...gorivoFormData, kamion_id: value })}
-                    disabled={!!currentGorivo || userRole === "vozac"}
+                    onValueChange={(value) => {
+                      setGorivoFormData({ ...gorivoFormData, kamion_id: value })
+                      if (userRole === "vozac") {
+                        setAssignedKamionId(value)
+                      }
+                    }}
+                    disabled={!!currentGorivo || (userRole === "vozac" && kamioni.length <= 1)}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Odaberite kamion" />

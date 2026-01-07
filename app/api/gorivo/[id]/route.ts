@@ -41,6 +41,15 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     return NextResponse.json({ success: true, message: "Gorivo uspješno ažurirano" })
   } catch (error) {
+    if (error && (error as { code?: string }).code === "ER_NO_SUCH_TABLE") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Tabela gorivo nije pronađena. Pokrenite migracije baze.",
+        },
+        { status: 500 },
+      )
+    }
     console.error("Greška pri ažuriranju goriva:", error)
     return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
   }
@@ -62,6 +71,15 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     return NextResponse.json({ success: true, message: "Gorivo uspješno obrisano" })
   } catch (error) {
+    if (error && (error as { code?: string }).code === "ER_NO_SUCH_TABLE") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Tabela gorivo nije pronađena. Pokrenite migracije baze.",
+        },
+        { status: 500 },
+      )
+    }
     console.error("Greška pri brisanju goriva:", error)
     return NextResponse.json({ success: false, message: "Greška servera" }, { status: 500 })
   }
