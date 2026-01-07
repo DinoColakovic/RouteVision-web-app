@@ -117,7 +117,7 @@ export default function VozniParkPage() {
     try {
       setLoading(true)
       const [kamionRes, opremaRes, vozacRes] = await Promise.all([
-        fetch("/api/vozni-park"),
+        fetch("/api/vozni-park?includeInactive=1"),
         fetch("/api/oprema"),
         fetch("/api/osoblje?tip=vozac"),
       ])

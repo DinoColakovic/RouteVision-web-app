@@ -18,6 +18,7 @@ interface KamionRow extends RowDataPacket {
 
 export async function GET(request: NextRequest) {
   const debugMode = request.nextUrl.searchParams.get("debug") === "1"
+  const includeInactive = request.nextUrl.searchParams.get("includeInactive") === "1"
 
   try {
     const user = await getSessionUser(request)
@@ -25,13 +26,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Neautorizovan pristup" }, { status: 401 })
     }
 
-    // Admin: return all active kamioni
+    // Admin: return all kamioni unless inactive filtering requested
     if (user.role === "admin") {
+      const inactiveFilter = includeInactive ? "" : "WHERE k.aktivan = TRUE"
       const [rows] = await pool.execute<KamionRow[]>(
           `SELECT k.*, k.zaduzeni_vozac_id as zaduzeni_vozac_id, v.ime as vozac_ime, v.prezime as vozac_prezime
          FROM kamion k
          LEFT JOIN vozac v ON k.zaduzeni_vozac_id = v.id OR k.vozac_id = v.id
-         WHERE k.aktivan = TRUE
+         ${inactiveFilter}
          ORDER BY k.datum_kreiranja DESC`,
       )
       return NextResponse.json({ success: true, data: rows })
